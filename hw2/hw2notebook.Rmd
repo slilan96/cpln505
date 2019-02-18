@@ -1,0 +1,127 @@
+---
+title: "CPLN 505 Assignment 2"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+We begin by first reading in the sewer survey data
+
+```{r}
+sewer_data <- read.csv("cwns2012.csv")
+summary(sewer_data)
+head(sewer_data)
+
+
+#convert the EPA_REGION to factor since it is intially read as a numeric character
+sewer_data$EPA_REGION <- as.factor(sewer_data$EPA_REGION)
+
+```
+## Section 1: Computing projected changes ##
+1. Projected change in residential population receiving collection 
+```{r}
+
+proj_change_res_rec_collctn <-sewer_data$PROJ_RES_REC_COLLCTN - sewer_data$PRES_RES_REC_COLLCTN
+ 
+```
+2. Projected percent change in residential population receiving collection
+```{r}
+
+```
+3. Projected change in residential population receiving treatment
+```{r}
+proj_chang_res_rec_trmt <- sewer_data$PROJ_RES_REC_TRMT - sewer_data$PRES_RES_REC_TRMT
+```
+4. Projected percent change in residential population receiving treatment
+```{r}
+
+```
+5. Projected change in non-residential population receiving treatment
+```{r}
+proj_chang_n_res_rec_trmt <- sewer_data$PROJ_N_RES_REC_TRMT - sewer_data$PRES_N_RES_REC_TRTM
+```
+6. Projected percent change in non-residential population receiving treatment
+```{r}
+
+```
+7. Projected change in non-residential population receiving collection
+```{r}
+proj_change_n_res_rec_collctn <-sewer_data$PROJ_N_RES_REC_COLLCTN - sewer_data$PRES_N_RES_REC_COLLCTN
+```
+8. Projected percent change in non-residential population receiving collection
+```{r}
+
+```
+9. Residential population density (using county area and population)
+```{r}
+pop80_density <- sewer_data$POP80 /  sewer_data$ALAND
+pop90_density <- sewer_data$POP90 / sewer_data$ALAND
+pop00_density <- sewer_data$POP00 / sewer_data$ALAND
+pop10_density <- sewer_data$POP10 / sewer_data$ALAND
+```
+10. Change and percent change in population density
+```{r}
+change80_90 <- pop90_density - pop80_density
+change90_00 < pop00_density - pop90_density
+change10_00 <- pop10_density = pop00_density
+
+#percentage changes
+
+
+
+
+```
+11. Percent change in median income
+```{r}
+
+```
+
+## Section 2: Provide summary statistics of test data
+Top/ Bottom 10 facilities with the most/least need by region or state
+```{r}
+#the data here will be filtered by the mean. 
+
+top10_most_need <- c(1:10)
+top10_least_need <- c(1:10)
+
+
+for (region in sewer_data$EPA_REGION) {
+  region_need <- sewer_data$TOTAL_OFFICIAL_NEED[grep(region, sewer_data$TOTAL_OFFICIAL_NEED, ignore.case = TRUE)]
+  region 
+}
+
+```
+
+Tables with max/min and other summary statistics(use summary() function ).
+```{r}
+
+
+```
+
+
+Boxplots/ density plots by region
+
+## Section 3: Tests of association 
+
+
+## Section 4: Correlation tests for variables 
+I will attempt to see fi there is a correlation between need and incomes
+Chosen variables are  
+  - MEDINC99
+  - MEDINC09
+  - POP10
+  - PCTWHITE10
+  - TOTAL_OFFICIAL_NEED
+  - STATE
+  
+```{R}
+pairs(~MEDINC99 + TOTAL_OFFICIAL_NEED + STATE + POP10 + PCTWHITE10, data=sewer_data, main="Correlation plot")
+```
+From the pairplot above, the data looks to be fairly uncorrelated, but to verify, we need to look at the correlation function for these plots
+```{r}
+par(mfrow=c(2,2))
+cor.test(~MEDINC99 + TOTAL_OFFICIAL_NEED, data=sewer_data, method="pearson")
+cor.test(~TOTAL_OFFICIAL_NEED + POP10, data=sewer_data, method="pearson")
+cor.test(~TOTAL_OFFICIAL_NEED + PCTWHITE10, data = sewer_data)
+```
+Some of the result from the pairwise plots are included in the diagram above. After that, we d
