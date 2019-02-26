@@ -1,13 +1,16 @@
 ---
 title: "CPLN 505 Assignment 2"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
-
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
 
 We begin by first reading in the sewer survey data
 
-```{r}
+```{r input_data}
 sewer_data <- read.csv("cwns2012.csv")
 summary(sewer_data)
 head(sewer_data)
@@ -20,9 +23,8 @@ sewer_data$EPA_REGION <- as.factor(sewer_data$EPA_REGION)
 ## Section 1: Computing projected changes ##
 1. Projected change in residential population receiving collection 
 ```{r}
+sewer_data$proj_change_res_rec_collctn <-sewer_data$PROJ_RES_REC_COLLCTN - sewer_data$PRES_RES_REC_COLLCTN
 
-proj_change_res_rec_collctn <-sewer_data$PROJ_RES_REC_COLLCTN - sewer_data$PRES_RES_REC_COLLCTN
- 
 ```
 2. Projected percent change in residential population receiving collection
 ```{r}
@@ -30,7 +32,7 @@ proj_change_res_rec_collctn <-sewer_data$PROJ_RES_REC_COLLCTN - sewer_data$PRES_
 ```
 3. Projected change in residential population receiving treatment
 ```{r}
-proj_chang_res_rec_trmt <- sewer_data$PROJ_RES_REC_TRMT - sewer_data$PRES_RES_REC_TRMT
+sewer_data$proj_chang_res_rec_trmt <- sewer_data$PROJ_RES_REC_TRMT - sewer_data$PRES_RES_REC_TRMT
 ```
 4. Projected percent change in residential population receiving treatment
 ```{r}
@@ -38,7 +40,7 @@ proj_chang_res_rec_trmt <- sewer_data$PROJ_RES_REC_TRMT - sewer_data$PRES_RES_RE
 ```
 5. Projected change in non-residential population receiving treatment
 ```{r}
-proj_chang_n_res_rec_trmt <- sewer_data$PROJ_N_RES_REC_TRMT - sewer_data$PRES_N_RES_REC_TRTM
+sewer_data$proj_chang_n_res_rec_trmt <- sewer_data$PROJ_N_RES_REC_TRMT - sewer_data$PRES_N_RES_REC_TRTM
 ```
 6. Projected percent change in non-residential population receiving treatment
 ```{r}
@@ -54,45 +56,35 @@ proj_change_n_res_rec_collctn <-sewer_data$PROJ_N_RES_REC_COLLCTN - sewer_data$P
 ```
 9. Residential population density (using county area and population)
 ```{r}
-pop80_density <- sewer_data$POP80 /  sewer_data$ALAND
-pop90_density <- sewer_data$POP90 / sewer_data$ALAND
-pop00_density <- sewer_data$POP00 / sewer_data$ALAND
-pop10_density <- sewer_data$POP10 / sewer_data$ALAND
+sewer_data$pop80_density <- sewer_data$POP80 /  sewer_data$ALAND
+sewer_data$pop90_density <- sewer_data$POP90 / sewer_data$ALAND
+sewer_data$pop00_density <- sewer_data$POP00 / sewer_data$ALAND
+sewer_data$pop10_density <- sewer_data$POP10 / sewer_data$ALAND
 ```
 10. Change and percent change in population density
-```{r}
-change80_90 <- pop90_density - pop80_density
-change90_00 < pop00_density - pop90_density
-change10_00 <- pop10_density = pop00_density
+```{r population_density_changes}
+sewer_data$change80_90 <- sewer_data$pop90_density - sewer_data$pop80_density
+sewer_data$change90_00 <- sewer_data$pop00_density - sewer_data$pop90_density
+sewer_data$change10_00 <- sewer_data$pop10_density - sewer_data$pop00_density
 
 #percentage changes
-
-
-
+sewer_data$perc_change_80_90 <- sewer_data$change80_90 / sewer_data$pop80_density * 100
+sewer_data$perc_change_90_00 <- sewer_data$change90_00 / sewer_data$pop90_density * 100
+sewer_data$perc_change_10_00 <- sewer_data$change10_00 / sewer_data$pop00_density * 100
 
 ```
 11. Percent change in median income
 ```{r}
 
+
 ```
 
 ## Section 2: Provide summary statistics of test data
 Top/ Bottom 10 facilities with the most/least need by region or state
-```{r}
-#the data here will be filtered by the mean. 
 
-top10_most_need <- c(1:10)
-top10_least_need <- c(1:10)
-
-
-for (region in sewer_data$EPA_REGION) {
-  region_need <- sewer_data$TOTAL_OFFICIAL_NEED[grep(region, sewer_data$TOTAL_OFFICIAL_NEED, ignore.case = TRUE)]
-  region 
-}
-
-```
 
 Tables with max/min and other summary statistics(use summary() function ).
+
 ```{r}
 
 
@@ -100,12 +92,54 @@ Tables with max/min and other summary statistics(use summary() function ).
 
 
 Boxplots/ density plots by region
+```{r boxplots_and_histograms}
+
+#use ggplto libarary to plot 
+library(ggplot2)
+p_region_need_box <- ggplot(data = sewer_data, aes(EPA_REGION, TOTAL_OFFICIAL_NEED)) + geom_boxplot() + xlab("EPA Region") + ylab("Total Official Need")
+p_region_need_box
+
+p_region_need_hist <- ggplot(data = sewer_data, aes(x = TOTAL_OFFICIAL_NEED)) + geom_density()
+p_region_need_hist
+
+```
+
+
 
 ## Section 3: Tests of association 
 
+In this section we would want to see if there is some association between some of the categorical variables and the continous outputs. 
+
+### Part 1: 
+The first association test will be between facilities' total need with a combined sewer system (CSS) or with a Municipal Separate Sewer System(MS4s).  
+
+The summary data for facilities with MS4 is: 
+
+```{r summary_ms4}
+summary(sewer_data$TOTAL_OFFICIAL_NEED[ sewer_data$MS4 == 1])
+```
+The summary data for facilities with CSS is: 
+```{r summary_css}
+summary(sewer_data$TOTAL_OFFICIAL_NEED[ sewer_data$CSS == 1])
+```
+A look at the mean and the median of the two categories indicates that facilities with combined sewere systems have a higher median, mean and maximum total official need. This could indicate that there is a bit of concern with systems that have combined sewer systems.  
+
+We will do a a t-test to see if there is a significance in the difference of the means off the two locales.
+```{r}
+css_facilities_need <- sewer_data$TOTAL_OFFICIAL_NEED[sewer_data$CSS == 1]
+ms4_facilities_need <- sewer_data$TOTAL_OFFICIAL_NEED[sewer_data$MS4 == 1]
+
+#perform 2-way test of means
+t.test(css_facilities_need, ms4_facilities_need)
+```
+
+With a p-value that is well below the 0.01 threshold, we can reject the null hypothesis and infer that there difference in means of the two groups is statistically significant
+
+###Part 2:
+
 
 ## Section 4: Correlation tests for variables 
-I will attempt to see fi there is a correlation between need and incomes
+I will attempt to see if there is a correlation between need and incomes
 Chosen variables are  
   - MEDINC99
   - MEDINC09
@@ -119,9 +153,13 @@ pairs(~MEDINC99 + TOTAL_OFFICIAL_NEED + STATE + POP10 + PCTWHITE10, data=sewer_d
 ```
 From the pairplot above, the data looks to be fairly uncorrelated, but to verify, we need to look at the correlation function for these plots
 ```{r}
-par(mfrow=c(2,2))
+par(mfrow=c(1,3))
 cor.test(~MEDINC99 + TOTAL_OFFICIAL_NEED, data=sewer_data, method="pearson")
 cor.test(~TOTAL_OFFICIAL_NEED + POP10, data=sewer_data, method="pearson")
 cor.test(~TOTAL_OFFICIAL_NEED + PCTWHITE10, data = sewer_data)
 ```
-Some of the result from the pairwise plots are included in the diagram above. After that, we d
+Some of the result from the pairwise plots are included in the diagram above. After that, we see that some of the data is not 
+
+## Section 5: Conclusion and Recommendations 
+From the data manipulation above, we can see that Philadelphia should implement a municipal separate sewer system. 
+
