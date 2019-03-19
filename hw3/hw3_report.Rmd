@@ -1,0 +1,335 @@
+---
+title: "HW 3"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r global_options_and_libraries, message=FALSE, include=FALSE}
+##clear workspace
+#rm(list = ls())
+
+#set chunking options for R markdown
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, fig.width = 6, fig.height = 3)
+
+## import libraries 
+library(MASS)       #regression
+library(glmnet)
+library(gmodels)    #plotting
+library(car)        #for qqplots
+library(DAAG)       #cross validation
+library(magrittr)
+library(pander)
+library(knitr)
+library(broom)
+library(fastDummies) #create dummy variables
+
+
+
+```
+
+
+## Section 1: Exploration and data analysis
+We will be using the CWNS data set from 2012 to perform regressions on the data. We will start by preparing the data for regression analysis. 
+
+```{r read_data_set_and_initialize_libaries}
+#import data set
+data <- read.csv("cwns2012.csv", sep = ",")
+data$EPA_REGION <- factor(data$EPA_REGION, ordered = FALSE)
+data$MS4 <- as.factor(data$MS4)
+data$CSS <- as.factor(data$CSS)
+
+#t#######################################################################
+#        DATA TRANSFORMATIONS, EXPLANATION TO FOLLOW IN REST OF MARKDOWN
+#########################################################################
+
+data$LOG_TOTAL_OFFICIAL_NEED <- log10(data$TOTAL_OFFICIAL_NEED)    #using base10 tranformation
+data$RES_BURDEN <- data$TOTAL_OFFICIAL_NEED / max(data$PRES_RES_REC_COLLCTN, data$PRES_RES_REC_TRTM)
+data$LOG_RES_BURDEN <- log10(data$RES_BURDEN)
+data$LOG_MEDINC09 <- log10(data$MEDINC09)
+data$LOG_MEDINC69 <- log10(data$MEDINC69)
+data$LOG_MEDINC79 <- log10(data$MEDINC79)
+data$LOG_MEDINC89 <- log10(data$MEDINC89)
+data$LOG_MEDINC99 <- log10(data$MEDINC99)
+data$LOG_POP10 <- log10(data$POP10)
+data$LOG_POP00 <- log10(data$POP00)
+data$LOG_POP90 <- log10(data$POP90)
+data$LOG_POP80 <- log10(data$POP80)
+data$NET_POP_DIFFERENCE <- data$POP10 - data$POP00 
+data$IS_GROWING <- data$NET_POP_DIFFERENCE > 0
+data$GROWING_CITY[data$IS_GROWING == TRUE] <- 1
+data$GROWING_CITY[data$IS_GROWING != TRUE] <- 0
+data$GROWING_CITY <- as.factor(as.integer(data$GROWING_CITY))
+
+# drop records with NA and infinite values after the transformations.
+final_df <- data[complete.cases(data) ,]
+final_df <- final_df[is.finite(final_df$LOG_TOTAL_OFFICIAL_NEED),]
+final_df <- final_df[is.finite(final_df$LOG_RES_BURDEN),]
+final_df <- final_df[is.finite(final_df$LOG_POP00),]
+final_df <- final_df[is.finite(final_df$LOG_POP10),]
+final_df <- final_df[is.finite(final_df$LOG_POP90),]
+final_df <- final_df[is.finite(final_df$LOG_POP80),]
+
+```
+
+Firstly, we are interested in creating a model that can help us to understand and possibly predict the investment needs for a particular facility. The outcome variables in this case would be **TOTAL_OFFICIAL_NEED**. 
+
+```{r histogram_total_official_need, fig.height=4, fig.width=9}
+par(mfrow = c(1,2))
+hist(final_df$TOTAL_OFFICIAL_NEED, main = "Histogram of total official need", xlab = "Total Official Need")
+hist(final_df$LOG_TOTAL_OFFICIAL_NEED, main = "Histogram of log total official need", xlab = "Log of Total Official Need" )
+```
+  
+From the histogram above, we see that the original untransformed data is skewed to the left. This is mainly because a lot of the facilities serve a fair amount of people and entities, and there are a few facilities that serve a large population of people and entities and consequently have very high infrastructure needs e.g Flushing, New York. We can create a new variable, **LOG_TOTAL_OFFICIAL_NEED**, which will be a log (base 10) transformation of **TOTAL_OFFICIAL_NEED**. The reason for doing this transformation is to make the data more symmetric, and at the same time reduce variability in the output.  
+
+We also create another variable, **RES_BURDEN**, which is a measure of the residential burden of a facility ($ / person). This is calculated by dividing the Total Need by the maximum value between Residents presently receiving treatment and residents presently receiving collection. This would give us a sense of how much the need is spread out per person.  
+
+```{r histogram_res_burden, fig.width=9, fig.height=4}
+par(mfrow = c(1,2))
+hist(final_df$RES_BURDEN, main = "Histogram of Residential Burden", xlab = "Residential Burden")
+hist(final_df$LOG_RES_BURDEN, main = " Histogram of Log of Residential Burden", xlab = "Log of Residential Burden")
+```
+  
+Just like the Total Official Need, we see that the data is also slightly skewed to the left. The figure on the right shows that the log (base10) transformation of **RES_BURDEN** leads to a more symmetric variable. Moving forward we will conduct regressions with both variables and compare their respective models' performance. 
+
+Some additional variable were also log-transformed to correct for the skewness in some of the variables. While it is not a requirement, having data with a more symmetric distribution may yield a better model performance. These variables transformed were:  
+  1. Population size variables. 
+  2. Income variables. 
+
+
+## Section 2: Bivariate Regressions
+At this stage, we start our regression analysis by conducting simple bivariate regressions on the some of the explanatory variables and need variables. I will use five explanatory variables that can serve as proxies for the following dimensions:  
+  1. Demographic : PCTWHITE10, POP10, NET_POP_DIFFERENCE
+  2. Socio-economic: MEDINC09
+  3. Physical: AWATER, REGION
+
+### Total Official Need vs Population (2010)
+We will start off by doing a regression of total official need and population. The expectation should be that as the population served by a facility goes up, then the total need should also go up since more strain is placed on a facility. Therefore, the expectation should be that we will have a positive slope for our bivariate regression.  
+
+Let's look at some scatterplots and see potential relationships between need and population, and also the corresponding transformed varialbes. 
+
+```{r scatter_plot_need_population, fig.width=10, fig.height=6}
+par(mfrow = c(2, 2))
+plot(final_df$POP10, final_df$TOTAL_OFFICIAL_NEED, xlab = "POP10", ylab = "TOTAL_OFFICIAL_NEED", main = "Total Official Need vs Population 2010")
+plot(final_df$LOG_POP10, final_df$TOTAL_OFFICIAL_NEED, xlab = "LOG_POP10", ylab = "TOTAL_OFFICIAL_NEED", 
+     main = "Total Official Need vs Log Population 2010")
+plot(final_df$POP10,final_df$LOG_TOTAL_OFFICIAL_NEED, xlab = "POP10", ylab = "LOG_TOTAL_OFFICIAL_NEED", 
+     main = "Log Total Official Need vs Population 2010")
+plot(final_df$LOG_POP10, final_df$LOG_TOTAL_OFFICIAL_NEED, xlab = "LOG_POP10", ylab = "LOG_TOTAL_OFFICIAL_NEED",
+     main = "Log Total Official Need vs Log Population 2010")
+```
+  
+From the plots, it would seem that there may be a relationship between LOG_TOTAL_OFFICIALNEED and LOG_POP10, and also between TOTAL_OFFICAL_NEED and LOG_POP10, whereby the first combination looks to be I will do a regression on both sets of data and see which one yields a better model.
+
+```{r regression_total_need_population, results="asis"}
+fit_log_need_log_pop <- lm("LOG_TOTAL_OFFICIAL_NEED ~ LOG_POP10", data = final_df)
+fit_need_log_pop <- lm("TOTAL_OFFICIAL_NEED ~ LOG_POP10", data = final_df)
+
+#latex output
+#print(xtable(fit_need_log_pop))
+
+par(mfrow = c(1,2))
+pander(summary(fit_log_need_log_pop))
+pander(summary(fit_need_log_pop))
+
+```
+
+From the table above, we see that the model with log transformed variables performs better. The $\beta_1$ value is statistically significant because the p-value is 0. However, the model can explain only 20.91% of the variance, therefore it offer very limited predictive power. 
+
+It could be the case that there are locations with high population and low facility needs, and vice versa. We can observe this from the scatterplot of Total Official Need vs Population above. Such an unusual relationship may be throwing off the regression calculation hence diminishing its predictive power. 
+
+Below is a plot for the regression line of both models. 
+```{r regression_line_need_pop, fig.width=10, fig.height=4}
+par(mfrow = c(1,2))
+plot(final_df$LOG_POP10, final_df$TOTAL_OFFICIAL_NEED, xlab = "LOG_POP10", ylab = "TOTAL_OFFICIAL_NEED", 
+     main = "Total Official Need vs Log Population 2010", pch = 16, col = 'blue')
+abline(fit_need_log_pop, col = 'red')
+
+
+plot(final_df$LOG_POP10, final_df$LOG_TOTAL_OFFICIAL_NEED, xlab = "LOG_POP10", ylab = "LOG_TOTAL_OFFICIAL_NEED",
+     main = "Log Total Official Need vs Log Population 2010", pch = 16, col = 'blue')
+abline(fit_log_need_log_pop, col = 'red')
+```
+  
+From the plots, the regression line in the second plot offers a better fit. We can open diagnostic plots and see if we have a chance to improve the model. 
+
+```{r need_pop_diagnostic plots, fig.width=10, fig.height= 8}
+par(mfrow = c(2,2))
+plot(fit_log_need_log_pop)
+```
+  
+The 1st plot i.e. the residuals plot indicates that the residuals are randomly distributed and there is no resulting pattern. The qqplot also suggest normality of the model, with the exception of a few points that have been identified as outliers (they have been identified by their numbers).
+
+However, when we look at the leverage plots, we see that there are few data points that are presented as outliers. The leverage points affected our model, so we'll see if we can improve the model by dropping a point that has appeared constantly in all the plots: point number 2954.
+
+```{r improved_log_pop_log_need}
+# what points
+fit_improved_log_pop_log_need <- lm("LOG_TOTAL_OFFICIAL_NEED ~ LOG_POP10", data = final_df, subset = (1:length(final_df$STCOU) != 3357))
+summary(fit_improved_log_pop_log_need) %>%
+  pander() 
+```
+The model did not improve much. 
+
+
+### Total Official Need vs Percent White
+From the diagnostic plots and the results from the above, it seems that using the **LOG_TOTAL_OFFICIAL_NEED** is a better dependent variable to use than **TOTAL_OFFICIAL_NEED**, therefore the rest of the bivariate analysis from this point onwards will use **LOG_TOTAL_OFFICIAL_NEED**
+
+```{r scatterplot_log_need_pc_white}
+plot(final_df$PCTWHITE10, final_df$LOG_TOTAL_OFFICIAL_NEED, main = "Log of Population Need vs Percent White 2010", xlab = "PCTWHITE10", 
+     ylab = "LOG_TOTAL_OFFICIAL_NEED")
+
+```
+
+It would seem that a lot of the data is concentrated in the right side of the plot. This could be because the PCTWHITE10 variable is skewed. This is to be expected since majority of the facilities will be located in locations with a white majority populace. We can try to correct the skewness by also taking a log transformation of PCTWHITE10. 
+
+```{r pct_white_10, fig.height = 4, fig.width=4}
+histogram(log10(final_df$PCTWHITE10), main = "Histogram of log of Percent White 2010",xlab = "Log of PCTWHITE10")
+```
+  
+The attempt to make **PCTWHITE10** symmetric did not reduce the skewness, therefore we will just use the base values for **PCTWHITE10** for the regression. 
+
+The reason this explanatory variable was chosen was that there is usually a trend where facilities and amenities, regardless of their use, tend to be better in majority white locations with the exception of some locations or regions e.g rural America. Therefore, it could be the case that indeed facilities in largely white locations could have less need. 
+
+The table below shows the regression results: 
+
+```{r results_table_log_need_pct_white}
+fit_log_need_pctwhite <- lm(LOG_TOTAL_OFFICIAL_NEED ~ PCTWHITE10, data = final_df)
+
+summary(fit_log_need_pctwhite) %>%
+  pander() 
+
+```
+
+```{r scatter_plot_regression_line, fig.height=7}
+plot(final_df$PCTWHITE10, final_df$LOG_TOTAL_OFFICIAL_NEED, main = "Log of Population Need vs Percent White 2010", xlab = "PCTWHITE10", 
+     ylab = "LOG_TOTAL_OFFICIAL_NEED", pch = 16, col = 'blue')
+abline(fit_log_need_pctwhite, col = 'red')
+abline(h = mean(final_df$LOG_TOTAL_OFFICIAL_NEED), col = 'green')
+legend(x = "topleft", c("Points", "Regression Line", "Mean of Log of total need"), col = c('blue', 'red', 'green'), fill = c('blue', 'red', 'green') )
+```
+  
+From the results of the modle above, we see that the model is indeed statistically significant with p-values well below 0.05. However the $R^2$ value of 0.04367 suggests that the model cannot account for a lot of the variance. This result should not come of as surprising, since most facilities are located in regions with a majority white populace. The line representing mean of of the log of Total Need shows that indeed the different need values are spread almost equally on both sides of the mean. 
+
+For an exploration based on the racial makeup of a facility's location, it may be more useful to encode the data with different indicator variables. This is beyond this report's scope because we do not have enough data on the racial makeup of the facilities and a mutually exclusive assumption may be unfounded. 
+
+### Total Official Need vs Median Income
+The next predictor for the Total Official Need will be median income. Intuitively, we could expect that the infrastructure need in high medianc income locations should be low because the regions are well maintained and have sufficient revenue streams. We will use a scatterplot to observe this relationship, and also draw a histogram of **MEDINC09** to check if the data is skewed.
+
+I chose **MEDINC09** over **MEAINC09** because the mean can be affected by outliers, as already demonsrated in boxplots and previous regressions. Therefore the median will be a sufficient proxy for socio-economic status for a region. 
+
+```{r scatter_plot_log_need_income, fig.height=6, fig.width=6}
+par(mfrow = c(2,1))
+plot(final_df$MEDINC09, final_df$LOG_TOTAL_OFFICIAL_NEED, ylab = "LOG_TOTAL_OFFICIAL_NEED", xlab = "MEDINC09", 
+     main = "Scatterplot of Total Official Need vs Median Income")
+hist(final_df$MEDINC09, main = "Histogram of MEDINC09", xlab = "Median Income")
+```
+
+The plots show that the **MEDINC09** data is not skewed, therefore we do not need to perform any additional transformations. We can check if the data is correlated before performing the regression. We proceed to do the regression. 
+
+```{r regression_need_medinc09}
+fit_log_need_medinc <- lm(LOG_TOTAL_OFFICIAL_NEED ~ MEDINC09, data = final_df)
+
+summary(fit_log_need_medinc) %>%
+  pander()
+```
+
+
+```{r scatter_plot, fig.width=5, fig.height=4}
+plot(final_df$MEDINC09, final_df$LOG_TOTAL_OFFICIAL_NEED, ylab = "LOG_TOTAL_OFFICIAL_NEED", xlab = "MEDINC09", 
+     main = "Scatterplot of Total Official Need vs Median Income")
+abline(fit_log_need_medinc, col ='red')
+abline( h = mean(final_df$LOG_TOTAL_OFFICIAL_NEED), col = 'green')
+legend(x = "topleft", c("Plots", "Regression Line", "Mean"), fill = c("black", "red", "green"))
+
+```
+
+We can see from the table and the plot above that we obtained a statistically significant model, however, the model performs poorly and has a poor explanatory power. This can be seen by observing the individual scatterplot above, where the regression line is almost close to the mean value of the log of total official need, therefore we do not gain any new insights as to the relationship between total official need and income.
+
+The relationship between median income and total official need seems week
+
+### Total Official Need vs Area of water
+
+
+### Residential Burden
+
+
+
+## Section 3: Multivariate Regressions
+
+The bivariate yielded some interesting results, however, there were not many useful insights from the bivariate analysis, therefore we try the multivariate regression. In addition to the explanatory variables used above, I will also make use of MS4 categorical variable for the model. 
+
+The first step will be to expand some of our variables. We had some categorical variables, which could be useful in the multivariate regressin. It could be the case that the region in which a facility is located could help predict/explain the needs of the facility. Fot this, we will use the package fastDummies. This will create 9 additional variables corresponding to the regions. The region being ommited is region 5, as it is the most represented region in the dataset. The choice of region to ommit when creating the variable is completely arbitrary. I selected region 5, because the package provides an option of having the omitted region as region 5. The output from the regression is shown in the table below:  
+
+```{r multivariate_regressions}
+#create dummy variables using fast dummies library
+final_df <- fastDummies::dummy_cols(final_df, select_columns = c("EPA_REGION"), remove_most_frequent_dummy = TRUE)
+
+multifit1 <- lm(LOG_TOTAL_OFFICIAL_NEED ~ LOG_POP10 + MEDINC09 + TMDL_INDICATOR + PCTWHITE10 + AWATER + ALAND + MS4 +  EPA_REGION_1 
+                + EPA_REGION_2 + EPA_REGION_3 + EPA_REGION_4 + EPA_REGION_6 + EPA_REGION_7 +EPA_REGION_8 + EPA_REGION_9 + EPA_REGION_10 
+                + IS_GROWING + MEDINC69 + MEDINC79 + MEDINC89 + MEDINC99 + MEANINC09 + LOG_POP00 + LOG_POP90 + LOG_POP80 + LOG_POP10 + 
+                  PCTWHITE00 + PRES_RES_REC_COLLCTN + PRES_N_RES_REC_COLLCTN, data = final_df)
+
+summary(multifit1) %>%
+  pander()
+
+```
+
+```{r multi_regression_plots, fig.width=8, fig.height=8}
+vif_model1 <- vif(multifit1)
+vif_results <- cbind(names(vif_model1), unname(vif_model1))
+colnames(vif_results) <- c("Variable", "VIF score")
+
+pander(vif_results)
+
+par(mfrow = c(3,2))
+plot(multifit1)
+plot(final_df$LOG_POP10, final_df$POP00)
+```
+
+
+From the results of the multivariate model above, we see that **AWATER, EPA_REGION_8** and **ALAND** have fairly high p-values, therefore there is sufficient evidence to omit them from the model and proceed with a reduced set of variables. However
+
+```{r multi_regression_reduced_plots}
+multifit2 <- lm(LOG_TOTAL_OFFICIAL_NEED ~ POP10 + MEDINC09 + TMDL_INDICATOR + PCTWHITE10 + MS4 + 
+                   EPA_REGION_1 + EPA_REGION_2 + EPA_REGION_3 + EPA_REGION_4 + EPA_REGION_6 + EPA_REGION_7  + 
+                  EPA_REGION_9 + EPA_REGION_10 + IS_GROWING, data = final_df)
+summary(multifit2)
+
+
+```
+
+All the variables in the model are significant, however we still need to improve the model further. We can do this using model selection techniques. We can use either forward or backward selection. However, I will use both ridge and lasso regression on the initial dataset to see if we can improve the model. Ridge regression will try to force the coefficients to be zero, while lasso will also act as the predictor selector in place of forward/ backward selection. We will also utilize cross-validation to 
+
+```{r multi_regression_lasso_cv}
+y <- final_df$TOTAL_OFFICIAL_NEED
+
+# make sure to get all predictors minus the intercept term
+x <- model.matrix(TOTAL_OFFICIAL_NEED ~ POP10 + MEDINC09 + TMDL_INDICATOR + PCTWHITE10 + AWATER + ALAND + MS4 + 
+                   EPA_REGION_1 + EPA_REGION_2 + EPA_REGION_3 + EPA_REGION_4 + EPA_REGION_6 + EPA_REGION_7 +EPA_REGION_8 + 
+                  EPA_REGION_9 + EPA_REGION_10 + IS_GROWING + MEDINC69 + MEDINC79 + MEDINC89 + MEDINC99 + MEANINC09 + POP80 + POP90 + POP00 +
+                    PCTWHITE00 + PRES_RES_REC_COLLCTN + PRES_N_RES_REC_COLLCTN, final_df)[, -1]
+
+
+# oerform cross validation on the set
+test_all <- glmnet(x, y, family = "gaussian", alpha = 0)
+
+cv_lasso <- cv.glmnet(x, y, type.measure = "mse", family = "gaussian", nfolds = 8, nlambda = 500, alpha = 1)
+cv_ridge <- cv.glmnet(x, y, type.measure = "mse", family = "gaussian", nfolds = 8, nlambda = 500, alpha = 0)
+
+cv_lasso$lambda.min
+cv_ridge$lambda.min
+
+plot(cv_lasso)
+plot(cv_ridge)
+
+print(coef(cv_lasso, s = "lambda.min")) 
+print(coef(cv_ridge, s = "lambda.min"))
+```
+
+
+
+## Section 4: Report to the Mayor  
+
+
